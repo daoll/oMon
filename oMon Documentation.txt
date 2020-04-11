@@ -1,0 +1,183 @@
+oMon Doc
+
+1. Introduction
+---------------
+The oMon project is build with a mindset of using the least possible resources.
+The Rapsberry PI was therefore an obvious choice as it is affordable and a low consumption device.
+Target of looking for and implementing open source solution is also a deliberate
+choice; not only for financial reason (although it is also valid reason) but also
+for a mindset reason.
+
+2. Platform
+-----------
+2.1 Setup a raspberry PI
+
+  For this project a Raspberry Pi 3 Model B Rev 1.2 is used
+  >>Tip: Issue the command <cat /proc/device-tree/model> to get the PI model information
+
+  The OS used is a Raspbian Lite:
+
+    PRETTY_NAME="Raspbian GNU/Linux 10 (buster)"
+    NAME="Raspbian GNU/Linux"
+    VERSION_ID="10"
+    VERSION="10 (buster)"
+    VERSION_CODENAME=buster
+    ID=raspbian
+    ID_LIKE=debian
+    HOME_URL="http://www.raspbian.org/"
+    SUPPORT_URL="http://www.raspbian.org/RaspbianForums"
+    BUG_REPORT_URL="http://www.raspbian.org/RaspbianBugs"
+
+  >>Tip: Issue the command <cat /etc/os-release> to get the OS information
+
+  Debian release: 10.2
+  >>Tip: Issue the command <cat /etc/debian_version> to get the OS version
+
+  Lots of Tutos, howto's and wiki exist on the internet to setup a PI.
+
+2.2 Add a second wireless adapter to the PI
+
+  A second USB WiFi dongle is necessary for this project since the built-in
+  Rapsberry WIFI chipset does not currently support monitoring mode.
+
+  A USB wireless adaptor is quite cheap and readily available, so there isn’t a
+  lot of reasons not to add it unless you’re on a really tight budget.
+
+  The Ralink Technology RT5370 chipset supports monitoring out of the box and
+  additionally it supports both monitoring and promiscuous modes. So it allows to
+  see unicast, multicast, and broadcast frames. The adaptor used in this project
+  was purchased on Amazon.
+
+  WIFI adaptor used : Ralink Technology, Corp. RT5370 Wireless Adapter
+  >>tip: The command lsusb allows to check the chipset on USB devices, hence the wifi adpator
+
+2.3 Network Setup
+
+  Target is to use:
+    - the on-board wireless adaptor (wlan0) into promiscuous mode.
+      This allows us to capture packets on a network to which we’re connected.
+    - the USB wireless adaptor (wlan1) in monitor mode,
+      This captures packets regardless of connected network. No association neither
+      authentication to an Access Point is needed.
+
+  a. Check network config
+    >> tip: use of commands <ifconfig> , <iwconfig> and <iw dev> to get internet
+      and wireless config informations
+
+      $iw dev
+
+      issues the following:
+           phy#1
+           Interface wlan1
+           ifindex 4
+           wdev 0x100000001
+           addr 00:0f:60:05:a8:5c
+           type managed
+           phy#0
+           Interface wlan0
+           ifindex 3
+           wdev 0x1
+           addr b8:27:eb:c2:99:b1
+           type managed
+
+      The Pi’s own wireless adaptor (wlan0) is to put the Pi onto our network,
+      while reserving our USB dongle (wlan1) for monitoring.
+      >>tip: Check mac addresses to identify which wlan is the external one.
+
+      Double check that the USB adaptor is capable of being configured for
+      monitoring:
+      $iw phy phy1 info
+
+  b. Setup wlan1 in mmonitoring mode:
+      $ sudo iw phy phy1 interface add mon1 type monitor
+
+      $ iw dev
+
+      now issues the following:
+           phy#1
+           Interface mon1
+           ifindex 5
+           wdev 0x100000002
+           addr 00:0f:60:05:a8:5c
+           type monitor
+           Interface wlan1
+           ifindex 4
+           wdev 0x100000001
+           addr 00:0f:60:05:a8:5c
+           type managed
+           phy#0
+           Interface wlan0
+           ifindex 3
+           wdev 0x1
+           addr b8:27:eb:c2:99:b1
+           type managed
+
+  c. Connect PI to network in WiFi
+
+      The onboard wifi adpater (wlan0) is used to connect on the network.
+
+      Assuming the network is protected by WPA2:
+      >>tip: to know what kind of encryption the network is protected with , issues
+      the < sudo iwlist wlan0 scan > command and check for the "IE: IEEE 802.11i/WPA2 Version 1"
+      line under the SSID you want to conenct to
+
+      edit the /etc/wpa_supplicant/wpa-supplicant file
+
+      At the bottom, add :
+
+      network={
+      ssid="SSID"
+      psk="PASSWORD"
+      }
+
+      where SSID is the ESSID of your home network, and PASSWORD is the WPA2 password .
+
+      If the WIFI conneciton does not go up after reboot, issue the below commands :
+      $ sudo ipdown wlan0
+      $ sudo ifup wlan0
+
+      Check of WIFI network connection:
+      $ ifconfig wlan0
+
+  d. Configure the USB wireless adaptor.
+
+      Edit the /etc/network/interfaces configuration file and change the wlan1 entry to:
+
+      allow-hotplug wlan1
+      iface wlan1 inet manual
+      pre-up iw phy phy1 interface add mon1 type monitor
+      pre-up iw dev wlan1 del
+      pre-up ifconfig mon1 up
+
+      Reboot the PI
+
+      $ ifconfig
+
+      should display something like:
+
+         mon1 Link encap:UNSPEC HWaddr 00-0F-60-05-A8-5C-30-30-00-00-00-00-00-00-00-00
+         UP BROADCAST RUNNING MULTICAST MTU:1500 Metric:1
+         RX packets:1414 errors:0 dropped:1414 overruns:0 frame:0
+         TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+         collisions:0 txqueuelen:1000
+         RX bytes:335469 (327.6 KiB) TX bytes:0 (0.0 B)
+
+         wlan0 Link encap:Ethernet HWaddr b8:27:eb:c2:99:b1
+         inet addr:192.168.1.217 Bcast:192.168.1.255 Mask:255.255.255.0
+         inet6 addr: fe80::9380:71d4:4917:9b65/64 Scope:Link
+         UP BROADCAST RUNNING MULTICAST MTU:1500 Metric:1
+         RX packets:134 errors:0 dropped:77 overruns:0 frame:0
+         TX packets:31 errors:0 dropped:0 overruns:0 carrier:0
+         collisions:0 txqueuelen:1000
+         RX bytes:30147 (29.4 KiB) TX bytes:5258 (5.1 KiB)
+
+3. Software
+-----------
+  3.1 kismet
+
+      Install kismet, set it up and enjoy (all doc on https://www.kismetwireless.net/)
+
+  3.2 arp-scan
+
+      Install: $ sudo apt-get install arp-scan
+      Run: $ sudo arp-scan --retry=8 --ignoredups -I wlan0 --localnet
